@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>AI Task Manager | Login</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f4f7fb; color: #333; padding: 40px; }
+    .container { max-width: 420px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 24px 60px rgba(0,0,0,0.08); padding: 32px; }
+    h1 { margin-bottom: 24px; font-size: 28px; }
+    label { display: block; margin-bottom: 8px; font-weight: 600; }
+    input { width: 100%; padding: 12px 14px; margin-bottom: 18px; border: 1px solid #dce3eb; border-radius: 8px; font-size: 15px; }
+    button { width: 100%; padding: 14px; border: none; border-radius: 10px; background: #4b7cff; color: white; font-size: 16px; cursor: pointer; }
+    button:hover { background: #3a63d9; }
+    .message { margin-top: 18px; }
+    .secondary { color: #717d8a; font-size: 14px; text-align: center; }
+    .secondary a { color: #4b7cff; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Welcome Back</h1>
+    <p>Sign in to manage your projects and tasks with AI Task Manager.</p>
+
+    <label for="username">Username</label>
+    <input id="username" type="text" placeholder="Enter username">
+
+    <label for="password">Password</label>
+    <input id="password" type="password" placeholder="Enter password">
+
+    <button onclick="handleLogin()">Login</button>
+    <div id="message" class="message"></div>
+
+    <p class="secondary">Need a quick demo? Use any username and password. <a href="index.html">Continue without login</a></p>
+  </div>
+
+  <script>
+    function handleLogin() {
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value.trim();
+      const message = document.getElementById('message');
+
+      if (!username || !password) {
+        message.textContent = 'Please enter both username and password.';
+        message.style.color = '#d43f3a';
+        return;
+      }
+
+      const user = { username, loggedInAt: new Date().toISOString() };
+      localStorage.setItem('aitask-user', JSON.stringify(user));
+      window.location.href = 'index.html';
+    }
+  </script>
+</body>
+</html>

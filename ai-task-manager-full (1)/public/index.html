@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>AI Task Manager</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; background: #f4f7fb; color: #2d3439; }
+  .page { max-width: 980px; margin: 0 auto; padding: 28px; }
+  .card { background: white; border-radius: 18px; box-shadow: 0 24px 60px rgba(0,0,0,0.08); padding: 24px; margin-bottom: 24px; }
+  h1, h2, h3 { margin: 0 0 16px; }
+  input, select, textarea, button { font-size: 15px; border-radius: 10px; }
+  input, select, textarea { width: 100%; padding: 12px 14px; border: 1px solid #dce3eb; margin-bottom: 14px; }
+  button { padding: 14px 18px; border: none; cursor: pointer; background: #4b7cff; color: white; }
+  button.secondary { background: #6c757d; }
+  button.delete { background: #f05b5b; }
+  .grid { display: grid; gap: 16px; }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .list { list-style: none; padding: 0; margin: 0; }
+  .list li { padding: 14px 16px; border: 1px solid #e6ebf4; border-radius: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+  .message { color: #d43f3a; margin-bottom: 16px; }
+  .hidden { display: none; }
+  .status { color: #637381; margin-bottom: 12px; }
+  textarea { resize: vertical; min-height: 90px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div id="loginView" class="card">
+    <h1>AI Task Manager</h1>
+    <p>Login or register to access your project dashboard.</p>
+    <div id="loginMessage" class="message"></div>
+    <label for="username">Username</label>
+    <input id="username" type="text" placeholder="Username">
+    <label for="password">Password</label>
+    <input id="password" type="password" placeholder="Password">
+    <div id="registerFields" class="hidden"></div>
+    <button id="authAction" onclick="handleAuth()">Login</button>
+    <p class="status">
+      <span id="toggleText">Don't have an account?</span>
+      <button class="toggle-link" onclick="toggleRegister()" type="button">Register now</button>
+    </p>
+  </div>
+
+  <div id="dashboardView" class="hidden">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;">
+        <div>
+          <h2>Project Dashboard</h2>
+          <div id="userStatus" class="status"></div>
+        </div>
+        <button class="secondary" onclick="logout()">Logout</button>
+      </div>
+    </div>
+
+    <div class="card grid grid-2">
+      <div>
+        <h3>Create New Project</h3>
+        <input id="pname" placeholder="Project name">
+        <input id="pdescription" placeholder="Project description">
+        <select id="pstatus">
+          <option value="Not Started">Not Started</option>
+          <option value="In Progress">In Progress</option>
+          <option value="Completed">Completed</option>
+          <option value="On Hold">On Hold</option>
+        </select>
+        <label for="pteam">Team Members</label>
+        <select id="pteam" multiple style="height:120px"></select>
+        <button id="addProjectButton" onclick="addProject()">Add Project</button>
+      </div>
+      <div>
+        <h3>Create New Task</h3>
+        <input id="tname" placeholder="Task title">
+        <textarea id="tdescription" placeholder="Task description"></textarea>
+        <input id="deadline" type="date">
+        <select id="prioritySelect">
+          <option value="">Priority</option>
+          <option value="High">High</option>
+          <option value="Medium">Medium</option>
+          <option value="Low">Low</option>
+        </select>
+        <select id="statusSelect">
+          <option value="Pending">Pending</option>
+          <option value="In Progress">In Progress</option>
+          <option value="Completed">Completed</option>
+        </select>
+        <select id="projectSelect"><option value="">Assign to project</option></select>
+        <select id="assignedToSelect"><option value="">Assign to user</option></select>
+        <button id="addTaskButton" onclick="addTask()">Add Task</button>
+      </div>
+    </div>
+
+    <div class="card grid grid-2">
+      <div>
+        <h3>Task Filters</h3>
+        <select id="taskFilterProject" onchange="renderTaskList()"></select>
+        <select id="taskFilterStatus" onchange="renderTaskList()">
+          <option value="">All statuses</option>
+          <option value="Pending">Pending</option>
+          <option value="In Progress">In Progress</option>
+          <option value="Completed">Completed</option>
+        </select>
+        <select id="taskFilterAssignee" onchange="renderTaskList()"><option value="">Assigned to anyone</option></select>
+        <button style="margin-top:12px;" onclick="clearTaskFilters()">Clear Filters</button>
+      </div>
+      <div>
+        <h3>Notifications</h3>
+        <ul id="notificationList" class="list"></ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Projects</h3>
+      <ul id="plist" class="list"></ul>
+    </div>
+
+    <div class="card">
+      <h3>Tasks</h3>
+      <ul id="tlist" class="list"></ul>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+let currentProjectId = null;
+let currentTaskId = null;
+let tasksCache = [];
+let projectsCache = [];
+let usersCache = [];
+let activeProjectView = '';
+
+function getUser() {
+  const raw = localStorage.getItem('aitask-user');
+  return raw ? JSON.parse(raw) : null;
+}
+
+function setUser(user) {
+  localStorage.setItem('aitask-user', JSON.stringify(user));
+}
+
+function getToken() {
+  return localStorage.getItem('aitask-token');
+}
+
+function setToken(token) {
+  localStorage.setItem('aitask-token', token);
+}
+
+function authHeaders() {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function showView() {
+  const user = getUser();
+  const loginView = document.getElementById('loginView');
+  const dashboardView = document.getElementById('dashboardView');
+  const status = document.getElementById('userStatus');
+
+  if (user) {
+    loginView.classList.add('hidden');
+    dashboardView.classList.remove('hidden');
+    status.textContent = `Signed in as ${user.username} (${user.role})`;
+  } else {
+    loginView.classList.remove('hidden');
+    dashboardView.classList.add('hidden');
+    document.getElementById('loginMessage').textContent = '';
+  }
+}
+
+let isRegisterMode = false;
+
+function toggleRegister() {
+  isRegisterMode = !isRegisterMode;
+  const registerFields = document.getElementById('registerFields');
+
+  if (isRegisterMode) {
+    registerFields.classList.remove('hidden');
+    registerFields.innerHTML = `
+      <label for="email">Email</label>
+      <input id="email" type="email" placeholder="Email">
+      <label for="userRole">Role</label>
+      <select id="userRole">
+        <option value="team-member">Team Member</option>
+        <option value="manager">Manager</option>
+        <option value="admin">Admin</option>
+      </select>
+    `;
+    document.getElementById('authAction').textContent = 'Register';
+    document.getElementById('toggleText').textContent = 'Already have an account?';
+  } else {
+    registerFields.classList.add('hidden');
+    registerFields.innerHTML = '';
+    document.getElementById('authAction').textContent = 'Login';
+    document.getElementById('toggleText').textContent = "Don't have an account?";
+  }
+}
+
+async function handleAuth() {
+  return isRegisterMode ? handleRegister() : handleLogin();
+}
+
+async function handleLogin() {
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value.trim();
+  const message = document.getElementById('loginMessage');
+
+  message.textContent = '';
+  if (!username || !password) {
+    message.textContent = 'Username and password are required.';
+    return;
+  }
+
+  const response = await fetch(API + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
+  });
+  const result = await response.json();
+
+  if (!response.ok) {
+    message.textContent = result.error || 'Login failed.';
+    return;
+  }
+
+  setToken(result.token);
+  setUser(result.user);
+  showView();
+  await loadUsers();
+  await loadProjects();
+  await loadTasks();
+}
+
+async function handleRegister() {
+  const username = document.getElementById('username').value.trim();
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value.trim();
+  const role = document.getElementById('userRole')?.value || 'team-member';
+  const message = document.getElementById('loginMessage');
+
+  message.textContent = '';
+  if (!username || !email || !password) {
+    message.textContent = 'Username, email, and password are required.';
+    return;
+  }
+
+  const response = await fetch(API + '/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, email, password, role })
+  });
+  const result = await response.json();
+
+  if (!response.ok) {
+    message.textContent = result.error || 'Registration failed.';
+    return;
+  }
+
+  setToken(result.token);
+  setUser(result.user);
+  showView();
+  await loadUsers();
+  await loadProjects();
+  await loadTasks();
+}
+
+function logout() {
+  localStorage.removeItem('aitask-token');
+  localStorage.removeItem('aitask-user');
+  showView();
+}
+
+function getSelectedValues(selectId) {
+  return Array.from(document.getElementById(selectId).selectedOptions)
+    .map(option => option.value)
+    .filter(Boolean);
+}
+
+async function addProject() {
+  const name = document.getElementById('pname').value.trim();
+  const description = document.getElementById('pdescription').value.trim();
+  const status = document.getElementById('pstatus').value;
+  const teamMembers = getSelectedValues('pteam');
+
+  if (!name) return alert('Enter a project name');
+
+  const method = currentProjectId ? 'PUT' : 'POST';
+  const url = currentProjectId ? `${API}/api/projects/${currentProjectId}` : `${API}/api/projects`;
+
+  await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ name, description, status, teamMembers })
+  });
+
+  document.getElementById('pname').value = '';
+  document.getElementById('pdescription').value = '';
+  document.getElementById('pstatus').value = 'Not Started';
+  document.getElementById('pteam').selectedIndex = -1;
+  currentProjectId = null;
+  document.getElementById('addProjectButton').textContent = 'Add Project';
+  await loadProjects();
+}
+
+async function editProject(id) {
+  const res = await fetch(`${API}/api/projects/${id}`, { headers: authHeaders() });
+  const project = await res.json();
+
+  document.getElementById('pname').value = project.name;
+  document.getElementById('pdescription').value = project.description || '';
+  document.getElementById('pstatus').value = project.status || 'Not Started';
+
+  const teamSelect = document.getElementById('pteam');
+  Array.from(teamSelect.options).forEach(option => {
+    option.selected = project.teamMembers?.some(member => member._id === option.value);
+  });
+
+  currentProjectId = id;
+  document.getElementById('addProjectButton').textContent = 'Update Project';
+}
+
+async function deleteProject(id) {
+  if (!confirm('Delete this project and all its tasks?')) return;
+  await fetch(API + '/api/projects/' + id, { method: 'DELETE', headers: authHeaders() });
+  await loadProjects();
+  await loadTasks();
+}
+
+async function loadProjects() {
+  const res = await fetch(API + '/api/projects', { headers: authHeaders() });
+  projectsCache = await res.json();
+
+  document.getElementById('plist').innerHTML = projectsCache.map(p => {
+    const members = p.teamMembers && p.teamMembers.length
+      ? p.teamMembers.map(member => `${member.username} (${member.role})`).join(', ')
+      : 'None';
+
+    return `<li><div><strong>${p.name}</strong> — ${p.status}<br>${p.description || ''}<br><small>Team: ${members}</small><br><small>${p.taskCount || 0} task(s)</small></div>` +
+      `<div><button onclick="setProjectFilter('${p._id}')">View</button>` +
+      `<button onclick="editProject('${p._id}')">Edit</button>` +
+      `<button class="delete" onclick="deleteProject('${p._id}')">Delete</button></div></li>`;
+  }).join('');
+
+  const projectSelect = document.getElementById('projectSelect');
+  const taskFilterProject = document.getElementById('taskFilterProject');
+
+  projectSelect.innerHTML = '<option value="">Assign to project</option>' +
+    projectsCache.map(p => `<option value="${p._id}">${p.name}</option>`).join('');
+  taskFilterProject.innerHTML = '<option value="">All projects</option>' +
+    projectsCache.map(p => `<option value="${p._id}">${p.name}</option>`).join('');
+}
+
+async function addTask() {
+  const title = document.getElementById('tname').value.trim();
+  const description = document.getElementById('tdescription').value.trim();
+  const deadline = document.getElementById('deadline').value;
+  const projectId = document.getElementById('projectSelect').value;
+  const priority = document.getElementById('prioritySelect').value;
+  const status = document.getElementById('statusSelect').value;
+  const assignedTo = document.getElementById('assignedToSelect').value;
+
+  if (!title) return alert('Enter a task title');
+
+  const method = currentTaskId ? 'PUT' : 'POST';
+  const url = currentTaskId ? `${API}/api/tasks/${currentTaskId}` : `${API}/api/tasks`;
+
+  await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ title, description, deadline, projectId, priority, status, assignedTo })
+  });
+
+  document.getElementById('tname').value = '';
+  document.getElementById('tdescription').value = '';
+  document.getElementById('deadline').value = '';
+  document.getElementById('projectSelect').value = '';
+  document.getElementById('prioritySelect').value = '';
+  document.getElementById('statusSelect').value = 'Pending';
+  document.getElementById('assignedToSelect').value = '';
+  currentTaskId = null;
+  document.getElementById('addTaskButton').textContent = 'Add Task';
+  activeProjectView = '';
+  await loadTasks();
+}
+
+async function editTask(id) {
+  const res = await fetch(`${API}/api/tasks/${id}`, { headers: authHeaders() });
+  const task = await res.json();
+
+  document.getElementById('tname').value = task.title;
+  document.getElementById('tdescription').value = task.description || '';
+  document.getElementById('deadline').value = task.deadline ? new Date(task.deadline).toISOString().slice(0, 10) : '';
+  document.getElementById('projectSelect').value = task.projectId || '';
+  document.getElementById('prioritySelect').value = task.priority || 'Medium';
+  document.getElementById('statusSelect').value = task.status || 'Pending';
+  document.getElementById('assignedToSelect').value = task.assignedToUser ? task.assignedToUser.id : '';
+  currentTaskId = id;
+  document.getElementById('addTaskButton').textContent = 'Update Task';
+}
+
+async function toggleTaskCompletion(id, currentStatus) {
+  const newStatus = currentStatus === 'Completed' ? 'Pending' : 'Completed';
+  await fetch(`${API}/api/tasks/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ status: newStatus })
+  });
+  await loadTasks();
+}
+
+async function deleteTask(id) {
+  if (!confirm('Delete this task?')) return;
+  await fetch(API + '/api/tasks/' + id, { method: 'DELETE', headers: authHeaders() });
+  await loadTasks();
+}
+
+async function loadUsers() {
+  const res = await fetch(API + '/api/users', { headers: authHeaders() });
+  usersCache = await res.json();
+
+  document.getElementById('assignedToSelect').innerHTML =
+    '<option value="">Assign to user</option>' +
+    usersCache.map(u => `<option value="${u._id}">${u.username} (${u.role})</option>`).join('');
+
+  document.getElementById('taskFilterAssignee').innerHTML =
+    '<option value="">Assigned to anyone</option>' +
+    usersCache.map(u => `<option value="${u._id}">${u.username} (${u.role})</option>`).join('');
+
+  document.getElementById('pteam').innerHTML =
+    usersCache.map(u => `<option value="${u._id}">${u.username} (${u.role})</option>`).join('');
+}
+
+function renderTaskList() {
+  const filterProject = document.getElementById('taskFilterProject').value;
+  const filterStatus = document.getElementById('taskFilterStatus').value;
+  const filterAssignee = document.getElementById('taskFilterAssignee').value;
+
+  const tasks = tasksCache.filter(task => {
+    return (!filterProject || task.projectId === filterProject) &&
+      (!filterStatus || task.status === filterStatus) &&
+      (!filterAssignee || (task.assignedToUser && task.assignedToUser.id === filterAssignee));
+  });
+
+  document.getElementById('tlist').innerHTML = tasks.map(t =>
+    `<li><div><strong>${t.title}</strong> [${t.status}] (${t.priority})<br>` +
+    `${t.projectName ? 'Project: ' + t.projectName + '<br>' : ''}` +
+    `${t.assignedToUser ? 'Assigned to: ' + t.assignedToUser.username + ' (' + t.assignedToUser.role + ')<br>' : ''}` +
+    `${t.deadline ? 'Due: ' + new Date(t.deadline).toLocaleDateString() + '<br>' : ''}` +
+    `${t.description ? t.description + '<br>' : ''}</div>` +
+    `<div><button onclick="editTask('${t._id}')">Edit</button>` +
+    `<button class="secondary" onclick="toggleTaskCompletion('${t._id}', '${t.status}')">${t.status === 'Completed' ? 'Mark Pending' : 'Mark Completed'}</button>` +
+    `<button class="delete" onclick="deleteTask('${t._id}')">Delete</button></div></li>`
+  ).join('');
+
+  renderNotifications();
+}
+
+function renderNotifications() {
+  const now = new Date();
+  const soon = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+
+  const overdueTasks = tasksCache.filter(task => task.deadline && new Date(task.deadline) < now && task.status !== 'Completed');
+  const dueSoonTasks = tasksCache.filter(task => task.deadline && new Date(task.deadline) <= soon && new Date(task.deadline) >= now && task.status !== 'Completed');
+
+  const notifications = [];
+  overdueTasks.forEach(task => notifications.push(`Overdue task: ${task.title} (${new Date(task.deadline).toLocaleDateString()})`));
+  dueSoonTasks.forEach(task => notifications.push(`Due soon: ${task.title} (${new Date(task.deadline).toLocaleDateString()})`));
+
+  const projectWarnings = projectsCache.filter(p => ['On Hold', 'Not Started'].includes(p.status));
+  projectWarnings.forEach(project => notifications.push(`Project "${project.name}" is ${project.status}.`));
+
+  document.getElementById('notificationList').innerHTML = notifications.length
+    ? notifications.map(item => `<li>${item}</li>`).join('')
+    : '<li>No notifications at this time.</li>';
+}
+
+function clearTaskFilters() {
+  document.getElementById('taskFilterProject').value = '';
+  document.getElementById('taskFilterStatus').value = '';
+  document.getElementById('taskFilterAssignee').value = '';
+  activeProjectView = '';
+  loadTasks();
+}
+
+function setProjectFilter(id) {
+  activeProjectView = id;
+  document.getElementById('taskFilterProject').value = id;
+  loadTasks();
+}
+
+async function loadTasks() {
+  let url = `${API}/api/tasks`;
+  if (activeProjectView) {
+    url = `${API}/api/projects/${activeProjectView}/tasks`;
+  }
+  const res = await fetch(url, { headers: authHeaders() });
+  tasksCache = await res.json();
+  renderTaskList();
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  showView();
+  if (getUser()) {
+    await loadUsers();
+    await loadProjects();
+    await loadTasks();
+  }
+});
+</script>
+</body>
+</html>
